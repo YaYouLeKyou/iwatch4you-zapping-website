@@ -9,9 +9,15 @@ Aucun fichier vidéo n'est téléchargé : uniquement des liens d'embed légaux.
 import hashlib
 import logging
 import re
+import warnings
+from concurrent.futures import ThreadPoolExecutor
 
 import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
+# On parse volontairement les flux RSS/Atom avec html.parser : le filtre
+# évite le warning répété de BeautifulSoup dans les logs.
+warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
 logger = logging.getLogger("iwatch4u.scraper")
 
@@ -38,8 +44,6 @@ FEEDS = [
     "https://www.youtube.com/feeds/videos.xml?user=TheTryGuys",
     # Site Break - fails et contenus drôles
     "https://www.break.com/rss.xml",
-    # 9GAG - contenu viral (si RSS disponible)
-    "https://9gag.com/rss/popular",
 ]
 
 YOUTUBE_ID_RE = re.compile(
@@ -144,45 +148,55 @@ def _parse_feed(feed_url: str) -> list[dict]:
     return items
 
 
+def _safe_parse_feed(feed_url: str) -> list[dict]:
+    """Parse un flux en isolant les erreurs : une source HS retourne []."""
+    logger.info("Inspection de la source : %s", feed_url)
+    try:
+        return _parse_feed(feed_url)
+    except Exception as exc:  # noqa: BLE001 - une source HS ne bloque pas le reste
+        logger.warning("Source indisponible (%s) : %s", feed_url, exc)
+        return []
+
+
 def scrape_all(feeds: list[str] | None = None) -> list[dict]:
     """
-    Inspecte toutes les sources et retourne une liste d'items normalisés :
+    Inspecte toutes les sources (en parallèle) et retourne une liste
+    d'items normalisés :
     { id, title, description, embed_url, thumbnail, source }
     Les items sans embed possible sont ignorés (on n'affiche que de l'embed).
     """
     results: dict[str, dict] = {}
+    feed_list = feeds or FEEDS
 
-    for feed_url in (feeds or FEEDS):
-        logger.info("Inspection de la source : %s", feed_url)
-        try:
-            entries = _parse_feed(feed_url)
-        except Exception as exc:  # noqa: BLE001 - une source HS ne bloque pas le reste
-            logger.warning("Source indisponible (%s) : %s", feed_url, exc)
-            continue
+    # Téléchargement des flux en parallèle : le temps total reste borné par
+    # le flux le plus lent au lieu de la somme de tous les timeouts.
+    with ThreadPoolExecutor(max_workers=min(5, len(feed_list))) as pool:
+        parsed_feeds = pool.map(_safe_parse_feed, feed_list)
 
-        for entry in entries:
-            link = entry["link"]
-            if not link:
-                continue
+        for entries in parsed_feeds:
+            for entry in entries:
+                link = entry["link"]
+                if not link:
+                    continue
 
-            embed_url = to_embed_url(link)
-            if not embed_url:
-                # Lien non intégrable (page HTML, article...) : on ignore.
-                logger.debug("Lien ignoré (pas d'embed) : %s", link)
-                continue
+                embed_url = to_embed_url(link)
+                if not embed_url:
+                    # Lien non intégrable (page HTML, article...) : on ignore.
+                    logger.debug("Lien ignoré (pas d'embed) : %s", link)
+                    continue
 
-            item_id = hashlib.sha256(embed_url.encode()).hexdigest()[:16]
-            if item_id in results:
-                continue
+                item_id = hashlib.sha256(embed_url.encode()).hexdigest()[:16]
+                if item_id in results:
+                    continue
 
-            results[item_id] = {
-                "id": item_id,
-                "title": entry["title"],
-                "description": entry["description"],
-                "embed_url": embed_url,
-                "thumbnail": entry["scraped_thumbnail"] or thumbnail_for_url(link),
-                "source": link,
-            }
+                results[item_id] = {
+                    "id": item_id,
+                    "title": entry["title"],
+                    "description": entry["description"],
+                    "embed_url": embed_url,
+                    "thumbnail": entry["scraped_thumbnail"] or thumbnail_for_url(link),
+                    "source": link,
+                }
 
     logger.info("%d nouvelle(s) vidéo(s) récupérée(s) au total.", len(results))
     return list(results.values())

@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 """
-iWatch4u - Traitement IA via l'API Groq (modèles Llama 3).
+iWatch4u - Traitement IA : Groq en principal, Gemini en repli.
 Génère : titre accrocheur FR, description courte FR, et tags.
+Si Groq échoue (quota épuisé, erreur réseau…), bascule automatiquement
+sur l'API Google Gemini. En dernier recours, retourne None et le pipeline
+utilise les valeurs d'origine.
 """
 
 import json
 import logging
 import os
 import re
+import time
 
 import requests
 
@@ -15,6 +19,11 @@ logger = logging.getLogger("iwatch4u.groq")
 
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-oss-20b"
+
+GEMINI_API_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+)
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 
 SYSTEM_PROMPT = (
     "Tu es l'éditeur en chef du site iWatch4u, un agrégateur français de "
@@ -63,11 +72,18 @@ def _extract_json(raw: str) -> dict:
     return json.loads(match.group(0))
 
 
-def generate_metadata(title: str, description: str) -> dict | None:
+def _build_user_prompt(title: str, description: str) -> str:
+    """Construit le prompt utilisateur commun aux deux fournisseurs."""
+    return USER_PROMPT_TEMPLATE.format(
+        title=title or "(sans titre)",
+        description=description[:600] or "(aucune description)",
+    )
+
+
+def _call_groq(title: str, description: str) -> str | None:
     """
-    Appelle Groq et retourne {"title", "description", "tags"}.
-    Retourne None en cas d'échec (le pipeline continuera avec les valeurs
-    d'origine, jamais bloqué).
+    Appelle l'API Groq. Retourne le contenu texte, ou None en cas d'échec
+    (avec 1 nouvelle tentative après pause sur un HTTP 429).
     """
     payload = {
         "model": os.environ.get("GROQ_MODEL", DEFAULT_MODEL),
@@ -76,38 +92,115 @@ def generate_metadata(title: str, description: str) -> dict | None:
         "response_format": {"type": "json_object"},
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": USER_PROMPT_TEMPLATE.format(
-                    title=title or "(sans titre)",
-                    description=description[:600] or "(aucune description)",
-                ),
-            },
+            {"role": "user", "content": _build_user_prompt(title, description)},
         ],
+    }
+
+    max_attempts = 2
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = requests.post(
+                GROQ_API_URL,
+                headers={
+                    "Authorization": f"Bearer {_get_api_key()}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=30,
+            )
+            if resp.status_code == 429:
+                # Quota mensuel ou rate-limit dépassé : inutile de retenter
+                # immédiatement, mais une seule pause peut suffire pour un
+                # simple rate-limit à la minute.
+                if attempt < max_attempts:
+                    logger.warning(
+                        "Groq rate-limit/quota (HTTP 429), nouvelle "
+                        "tentative dans 30 s…"
+                    )
+                    time.sleep(30)
+                    continue
+                logger.warning("Quota Groq épuisé (HTTP 429).")
+            elif not resp.ok:
+                logger.error("Groq HTTP %d: %s", resp.status_code, resp.text)
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+        except Exception as exc:  # noqa: BLE001
+            logger.error("Appel Groq échoué : %s", exc)
+            return None
+    return None
+
+
+def _call_gemini(title: str, description: str) -> str | None:
+    """
+    Repli : appelle l'API Google Gemini (Generative Language API).
+    Retourne le contenu texte, ou None en cas d'échec.
+    """
+    key = os.environ.get("GEMINI_API_KEY")
+    if not key:
+        logger.warning("GEMINI_API_KEY non définie — repli indisponible.")
+        return None
+
+    model = os.environ.get("GEMINI_MODEL", DEFAULT_GEMINI_MODEL)
+    payload = {
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [
+            {"role": "user", "parts": [{"text": _build_user_prompt(title, description)}]}
+        ],
+        "generationConfig": {
+            "temperature": 0.7,
+            "maxOutputTokens": 2048,
+            "responseMimeType": "application/json",
+        },
     }
 
     try:
         resp = requests.post(
-            GROQ_API_URL,
+            GEMINI_API_URL.format(model=model),
             headers={
-                "Authorization": f"Bearer {_get_api_key()}",
+                "x-goog-api-key": key,
                 "Content-Type": "application/json",
             },
             json=payload,
             timeout=30,
         )
         if not resp.ok:
-            logger.error("Groq HTTP %d: %s", resp.status_code, resp.text)
-        resp.raise_for_status()
-        content = resp.json()["choices"][0]["message"]["content"]
+            logger.error("Gemini HTTP %d: %s", resp.status_code, resp.text[:300])
+            return None
+        candidates = resp.json().get("candidates") or []
+        parts = (
+            candidates[0].get("content", {}).get("parts", [])
+            if candidates
+            else []
+        )
+        text = "".join(p.get("text", "") for p in parts).strip()
+        if not text:
+            logger.error("Réponse Gemini vide ou bloquée : %s",
+                         str(resp.json())[:300])
+            return None
+        return text
     except Exception as exc:  # noqa: BLE001
-        logger.error("Appel Groq échoué : %s", exc)
+        logger.error("Appel Gemini échoué : %s", exc)
+        return None
+
+
+def generate_metadata(title: str, description: str) -> dict | None:
+    """
+    Génère {"title", "description", "tags"} via Groq, avec repli Gemini.
+    Retourne None si les deux fournisseurs échouent (le pipeline continuera
+    avec les valeurs d'origine, jamais bloqué).
+    """
+    content = _call_groq(title, description)
+    if content is None:
+        logger.info("Bascule sur le repli Gemini…")
+        content = _call_gemini(title, description)
+    if content is None:
+        logger.error("Groq ET Gemini en échec — valeurs d'origine conservées.")
         return None
 
     try:
         data = _extract_json(content)
     except (ValueError, json.JSONDecodeError) as exc:
-        logger.error("Réponse Groq illisible (%s) : %r", exc, content[:200])
+        logger.error("Réponse IA illisible (%s) : %r", exc, content[:200])
         return None
 
     tags_raw = data.get("tags", [])

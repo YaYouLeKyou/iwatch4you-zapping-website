@@ -2,8 +2,10 @@ name: 🔄 Mise à jour automatique iWatch4u
 
 on:
   schedule:
-    # Publie les vidéos toutes les heures pour 4 nouvelles vidéos
-    - cron: '0 * * * *'
+    # Toutes les 2 h : jusqu'à 8 vidéos programmées par run (soit toujours
+    # 4 publications/heure côté site grâce au scheduling publish_at),
+    # en divisant par 2 le nombre d'exécutions GitHub Actions.
+    - cron: '0 */2 * * *'
   workflow_dispatch: {} # permet aussi de lancer manuellement depuis l'onglet Actions
 
 permissions:
@@ -16,6 +18,8 @@ concurrency:
 jobs:
   update-content:
     runs-on: ubuntu-latest
+    timeout-minutes: 8 # évite qu'un run bloqué monopolise la file de concurrence
+
     steps:
       - name: 📥 Récupération du dépôt
         uses: actions/checkout@v4
@@ -27,12 +31,13 @@ jobs:
           cache: pip
 
       - name: 📦 Installation des dépendances
-        run: pip install -r requirements.txt
+        run: pip install --quiet --disable-pip-version-check -r requirements.txt
 
       - name: 🕷️ Scraper + ✨ Groq AI + 💾 Mise à jour de videos.json
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          MAX_ITEMS: '4'
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          MAX_ITEMS: '8'
         run: python main.py --max-items "$MAX_ITEMS"
 
       - name: 🚀 Commit & push des changements

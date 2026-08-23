@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>iWatch4u — Le meilleur du zapping web, heure par heure</title>
+  <meta name="description" content="iWatch4u agrège automatiquement les meilleures vidéos virales du web. Une nouvelle vidéo chaque heure." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⏱️</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="site-header">
+    <a class="logo" href="./" aria-label="iWatch4u - accueil">
+      <span class="logo-icon">⏱️</span>
+      <span class="logo-text">iWatch<b>4u</b></span>
+    </a>
+    <p class="slogan">Le meilleur du zapping web, heure par heure</p>
+
+    <div id="next-video-banner" class="next-video-banner hidden">
+      🕐 Prochaine vidéo dans <strong id="countdown">--:--:--</strong>
+    </div>
+  </header>
+
+  <main>
+    <section class="toolbar">
+      <h2 id="section-title">Dernières vidéos</h2>
+      <div id="tag-filters" class="tag-filters" aria-label="Filtres par tag"></div>
+    </section>
+
+    <section id="video-grid" class="video-grid" aria-live="polite">
+      <div class="loading">Chargement du zapping…</div>
+    </section>
+
+    <p id="empty-state" class="empty-state hidden">
+      Aucune vidéo publiée pour le moment. Revenez très vite, ça arrive toutes les heures ! ⏳
+    </p>
+  </main>
+
+  <!-- Lecteur modal -->
+  <div id="player-modal" class="player-modal hidden" role="dialog" aria-modal="true" aria-label="Lecteur vidéo">
+    <div class="player-modal-backdrop" data-close></div>
+    <div class="player-modal-content">
+      <button class="player-close" data-close aria-label="Fermer">✕</button>
+      <div class="iframe-wrapper">
+        <iframe id="player-iframe" src="" title="Lecteur iWatch4u"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>
+      </div>
+      <div class="player-info">
+        <h3 id="player-title"></h3>
+        <p id="player-description"></p>
+        <div id="player-tags" class="player-tags"></div>
+        <a id="player-source" href="#" target="_blank" rel="noopener noreferrer" class="source-link">Voir la source ↗</a>
+      </div>
+    </div>
+  </div>
+
+  <footer class="site-footer">
+    <p>iWatch4u © <span id="year"></span> — Agrégateur automatisé de vidéos virales · Propulsé par Groq AI</p>
+    <p class="footer-note">Les vidéos sont intégrées via leurs lecteurs officiels et restent la propriété de leurs auteurs respectifs.</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

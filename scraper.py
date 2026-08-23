@@ -9,6 +9,7 @@ Aucun fichier vidéo n'est téléchargé : uniquement des liens d'embed légaux.
 import hashlib
 import logging
 import re
+import time
 import warnings
 from concurrent.futures import ThreadPoolExecutor
 
@@ -151,10 +152,15 @@ def _parse_feed(feed_url: str) -> list[dict]:
 def _safe_parse_feed(feed_url: str) -> list[dict]:
     """Parse un flux en isolant les erreurs : une source HS retourne []."""
     logger.info("Inspection de la source : %s", feed_url)
+    start = time.monotonic()
     try:
-        return _parse_feed(feed_url)
+        entries = _parse_feed(feed_url)
+        logger.info("Source %s : %d entrée(s) en %.1f s",
+                    feed_url, len(entries), time.monotonic() - start)
+        return entries
     except Exception as exc:  # noqa: BLE001 - une source HS ne bloque pas le reste
-        logger.warning("Source indisponible (%s) : %s", feed_url, exc)
+        logger.warning("Source indisponible après %.1f s (%s) : %s",
+                       time.monotonic() - start, feed_url, exc)
         return []
 
 
@@ -167,6 +173,7 @@ def scrape_all(feeds: list[str] | None = None) -> list[dict]:
     """
     results: dict[str, dict] = {}
     feed_list = feeds or FEEDS
+    scrape_start = time.monotonic()
 
     # Téléchargement des flux en parallèle : le temps total reste borné par
     # le flux le plus lent au lieu de la somme de tous les timeouts.
@@ -198,5 +205,6 @@ def scrape_all(feeds: list[str] | None = None) -> list[dict]:
                     "source": link,
                 }
 
-    logger.info("%d nouvelle(s) vidéo(s) récupérée(s) au total.", len(results))
+    logger.info("%d nouvelle(s) vidéo(s) récupérée(s) au total en %.1f s.",
+                len(results), time.monotonic() - scrape_start)
     return list(results.values())

@@ -1,0 +1,48 @@
+name: 🔄 Mise à jour automatique iWatch4u
+
+on:
+  schedule:
+    # Publie les vidéos deux fois par jour à 7h et 17h
+    - cron: '0 7,17 * * *'
+  workflow_dispatch: {} # permet aussi de lancer manuellement depuis l'onglet Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: iwatch4u-update
+  cancel-in-progress: false
+
+jobs:
+  update-content:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Récupération du dépôt
+        uses: actions/checkout@v4
+
+      - name: 🐍 Installation de Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: 📦 Installation des dépendances
+        run: pip install -r requirements.txt
+
+      - name: 🕷️ Scraper + ✨ Groq AI + 💾 Mise à jour de videos.json
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MAX_ITEMS: '6'
+        run: python main.py --max-items "$MAX_ITEMS"
+
+      - name: 🚀 Commit & push des changements
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/videos.json
+          if git diff --cached --quiet; then
+            echo "Aucun changement à committer."
+          else
+            git commit -m "🤖 Mise à jour automatique du zapping $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi

@@ -2,8 +2,8 @@ name: 🔄 Mise à jour automatique iWatch4u
 
 on:
   schedule:
-    # Publie les vidéos deux fois par jour à 7h et 17h
-    - cron: '0 7,17 * * *'
+    # Publie les vidéos toutes les heures pour 4 nouvelles vidéos
+    - cron: '0 * * * *'
   workflow_dispatch: {} # permet aussi de lancer manuellement depuis l'onglet Actions
 
 permissions:
@@ -32,7 +32,7 @@ jobs:
       - name: 🕷️ Scraper + ✨ Groq AI + 💾 Mise à jour de videos.json
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          MAX_ITEMS: '6'
+          MAX_ITEMS: '4'
         run: python main.py --max-items "$MAX_ITEMS"
 
       - name: 🚀 Commit & push des changements

@@ -52,6 +52,13 @@ class GroqError(Exception):
     """Erreur lors de l'appel à l'API Groq."""
 
 
+# Coupe-circuits internes au run : évitent de répéter des appels voués à
+# l'échec (quota épuisé, API en panne) et bornent la durée totale.
+_groq_disabled = False      # quota Groq définitivement épuisé -> repli direct
+_gemini_failures = 0        # après 3 échecs consécutifs, Gemini est ignoré
+_MAX_GEMINI_FAILURES = 3
+
+
 def _get_api_key() -> str:
     key = os.environ.get("GROQ_API_KEY")
     if not key:
@@ -84,7 +91,10 @@ def _call_groq(title: str, description: str) -> str | None:
     """
     Appelle l'API Groq. Retourne le contenu texte, ou None en cas d'échec
     (avec 1 nouvelle tentative après pause sur un HTTP 429).
+    Une fois le quota mensuel épuisé, Groq est désactivé pour tout le reste
+    du run (bascule immédiate sur Gemini).
     """
+    global _groq_disabled
     payload = {
         "model": os.environ.get("GROQ_MODEL", DEFAULT_MODEL),
         "temperature": 0.7,
@@ -115,11 +125,15 @@ def _call_groq(title: str, description: str) -> str | None:
                 if attempt < max_attempts:
                     logger.warning(
                         "Groq rate-limit/quota (HTTP 429), nouvelle "
-                        "tentative dans 30 s…"
+                        "tentative dans 15 s…"
                     )
-                    time.sleep(30)
+                    time.sleep(15)
                     continue
-                logger.warning("Quota Groq épuisé (HTTP 429).")
+                logger.warning(
+                    "Quota Groq épuisé (HTTP 429) — Groq désactivé pour "
+                    "le reste du run."
+                )
+                _groq_disabled = True
             elif not resp.ok:
                 logger.error("Groq HTTP %d: %s", resp.status_code, resp.text)
             resp.raise_for_status()
@@ -135,8 +149,7 @@ def _call_gemini(title: str, description: str) -> str | None:
     Repli : appelle l'API Google Gemini (Generative Language API).
     Retourne le contenu texte, ou None en cas d'échec.
     """
-    key = os.environ.get("GEMINI_API_KEY")
-    if not key:
+    if not os.environ.get("GEMINI_API_KEY"):
         logger.warning("GEMINI_API_KEY non définie — repli indisponible.")
         return None
 
@@ -157,7 +170,7 @@ def _call_gemini(title: str, description: str) -> str | None:
         resp = requests.post(
             GEMINI_API_URL.format(model=model),
             headers={
-                "x-goog-api-key": key,
+                "x-goog-api-key": os.environ["GEMINI_API_KEY"],
                 "Content-Type": "application/json",
             },
             json=payload,
@@ -165,6 +178,7 @@ def _call_gemini(title: str, description: str) -> str | None:
         )
         if not resp.ok:
             logger.error("Gemini HTTP %d: %s", resp.status_code, resp.text[:300])
+            _gemini_failures += 1
             return None
         candidates = resp.json().get("candidates") or []
         parts = (
@@ -176,10 +190,13 @@ def _call_gemini(title: str, description: str) -> str | None:
         if not text:
             logger.error("Réponse Gemini vide ou bloquée : %s",
                          str(resp.json())[:300])
+            _gemini_failures += 1
             return None
+        _gemini_failures = 0
         return text
     except Exception as exc:  # noqa: BLE001
         logger.error("Appel Gemini échoué : %s", exc)
+        _gemini_failures += 1
         return None
 
 
@@ -188,9 +205,12 @@ def generate_metadata(title: str, description: str) -> dict | None:
     Génère {"title", "description", "tags"} via Groq, avec repli Gemini.
     Retourne None si les deux fournisseurs échouent (le pipeline continuera
     avec les valeurs d'origine, jamais bloqué).
+
+    Coupe-circuits : une fois le quota Groq épuisé, Groq n'est plus appelé ;
+    après 3 échecs Gemini consécutifs, Gemini n'est plus appelé.
     """
-    content = _call_groq(title, description)
-    if content is None:
+    content = None if _groq_disabled else _call_groq(title, description)
+    if content is None and _gemini_failures < _MAX_GEMINI_FAILURES:
         logger.info("Bascule sur le repli Gemini…")
         content = _call_gemini(title, description)
     if content is None:

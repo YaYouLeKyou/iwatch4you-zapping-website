@@ -1167,6 +1167,38 @@
       "thumbnail": "https://i1.ytimg.com/vi/PLXnNO4cS68/hqdefault.jpg",
       "source": "https://www.youtube.com/watch?v=PLXnNO4cS68",
       "publish_at": "2026-10-01T12:49:40Z"
+    },
+    {
+      "id": "1bfafc7b76ad889c",
+      "title": "Podcast ASMR : quand le crash devient le meilleur fail",
+      "description": "Un podcasteur tente de lancer un épisode ASMR, mais le tout se transforme en un crash hilarant. Bruits de pneus, voix qui s'effondre et chaos assurés. Si tu cherches un signe pour abandonner ton projet, regarde ça !",
+      "tags": [
+        "podcast",
+        "crashasmr",
+        "fail",
+        "baddrivers",
+        "asmr"
+      ],
+      "embed_url": "https://www.youtube-nocookie.com/embed/AIWHvvVRwR0",
+      "thumbnail": "https://i2.ytimg.com/vi/AIWHvvVRwR0/hqdefault.jpg",
+      "source": "https://www.youtube.com/shorts/AIWHvvVRwR0",
+      "publish_at": "2026-10-01T23:48:11Z"
+    },
+    {
+      "id": "aebb250f7b8ec8e4",
+      "title": "Ours XXL en mode agressif : la vidéo qui vous fait dire STOP !",
+      "description": "Une caméra de sécurité capture un ours massif qui se retrouve face à un intrus inattendu. Le gros ours, clairement mécontent, montre qu'il ne faut pas le provoquer. Les internautes rient, mais se rappellent que la nature reste imprévisible.",
+      "tags": [
+        "fatbear",
+        "bearattack",
+        "securitycamera",
+        "fail",
+        "zapping"
+      ],
+      "embed_url": "https://www.youtube-nocookie.com/embed/khW-F69Nrb4",
+      "thumbnail": "https://i4.ytimg.com/vi/khW-F69Nrb4/hqdefault.jpg",
+      "source": "https://www.youtube.com/shorts/khW-F69Nrb4",
+      "publish_at": "2026-10-02T00:03:11Z"
     }
   ]
 }
